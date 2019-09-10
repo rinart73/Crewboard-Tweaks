@@ -1,22 +1,28 @@
+local Azimuth, CrewboardTweaksConfig, crewboardTweaks_isVisible -- client
+local crewboardTweaks_crewWorkforceUI -- client UI
+local crewboardTweaks_onShowWindow, crewboardTweaks_sync -- client extended functions
+local crewboardTweaks_hireCrew -- server extended functions
+
+
 if onClient() then
 
 
 include("azimuthlib-uiproportionalsplitter")
-local Azimuth = include("azimuthlib-basic")
+Azimuth = include("azimuthlib-basic")
 
 local crewboardTweaks_configOptions = {
   _version = {default = "1.0", comment = "Config version. Don't touch."},
   EnableCrewWorkforcePreview = {default = true, comment = "Show current and minimal crew workforce in crewboard window."}
 }
-local CrewboardTweaksConfig, crewboardTweaks_isModified = Azimuth.loadConfig("CrewboardTweaks", crewboardTweaks_configOptions)
+local crewboardTweaks_isModified
+CrewboardTweaksConfig, crewboardTweaks_isModified = Azimuth.loadConfig("CrewboardTweaks", crewboardTweaks_configOptions)
 if crewboardTweaks_isModified then
     Azimuth.saveConfig("CrewboardTweaks", CrewboardTweaksConfig, crewboardTweaks_configOptions)
 end
 
 if CrewboardTweaksConfig.EnableCrewWorkforcePreview then
 
-local crewboardTweaks_crewProfessionIds = {1, 2, 3, 4, 5, 8, 9, 10, 11}
-local crewboardTweaks_crewWorkforceUI = {}
+crewboardTweaks_crewWorkforceUI = {}
 
 function CrewBoard.initUI() -- overridden
     local res = getResolution()
@@ -85,12 +91,12 @@ function CrewBoard.initUI() -- overridden
     end
 
     -- ship workforce
-    local wfsplit = UIVerticalMultiSplitter(Rect(hsplit[2].lower, hsplit[2].upper - vec2(0, 10)), 10, 0, 4)
+    local wfsplit = UIVerticalMultiSplitter(Rect(hsplit[2].lower, hsplit[2].upper - vec2(0, 10)), 10, 0, 5)
     local wfpartition, wficon, wfyoffset
-    for i = 1, 9 do
-        wfpartition = wfsplit:partition(i - math.floor(i / 6) * 5 - 1)
-        wfyoffset = math.floor(i / 6) * 30
-        wficon = window:createPicture(Rect(wfpartition.lower + vec2(0, wfyoffset), wfpartition.lower + vec2(20, 20 + wfyoffset)), CrewProfession(crewboardTweaks_crewProfessionIds[i]).icon)
+    for i = 1, 12 do
+        wfpartition = wfsplit:partition(i - math.floor(i / 7) * 6 - 1)
+        wfyoffset = math.floor(i / 7) * 30
+        wficon = window:createPicture(Rect(wfpartition.lower + vec2(0, wfyoffset), wfpartition.lower + vec2(20, 20 + wfyoffset)), CrewProfession(i).icon)
         wficon.isIcon = 1
         crewboardTweaks_crewWorkforceUI[i] = {
           icon = wficon,
@@ -122,34 +128,70 @@ function CrewBoard.initUI() -- overridden
     uiInitialized = true
 end
 
-local crewboardTweaks_sync = CrewBoard.sync
+crewboardTweaks_onShowWindow = CrewBoard.onShowWindow
+function CrewBoard.onShowWindow(...)
+    crewboardTweaks_onShowWindow(...)
+
+    crewboardTweaks_isVisible = true
+
+    local ship = getPlayerCraft()
+    ship:registerCallback("onCrewChanged", "crewboardTweaks_onCrewChanged")
+end
+
+crewboardTweaks_onCloseWindow = CrewBoard.onCloseWindow
+function CrewBoard.onCloseWindow(...)
+    if crewboardTweaks_onCloseWindow then crewboardTweaks_onCloseWindow(...) end
+
+    crewboardTweaks_isVisible = false
+end
+
+crewboardTweaks_sync = CrewBoard.sync
 function CrewBoard.sync(available, transport, lineToReset)
     -- update crew workforce labels
-    if available then
-        local ship = getPlayerCraft()
-        if ship and ship:hasComponent(ComponentType.Crew) then
-            local workforce = {}
-            local minWorkforce = {}
-            for k, v in pairs(ship.crew:getWorkforce()) do
-                workforce[k.value] = v
-            end
-            for k,v in pairs(ship.minCrew:getWorkforce()) do
-                minWorkforce[k.value] = v
-            end
-            local profId, wf, minWf, wfUIPair
-            for i = 1, 9 do
-                profId = crewboardTweaks_crewProfessionIds[i]
-                wf = workforce[profId] or 0
-                minWf = minWorkforce[profId] or 0
-                wfUIPair = crewboardTweaks_crewWorkforceUI[i]
-                wfUIPair.icon.tooltip = CrewProfession(profId):name()
-                wfUIPair.label.caption = wf .. "/" .. minWf
-                wfUIPair.label.color = wf < minWf and ColorInt(0xffff2626) or ColorInt(0xffe0e0e0)
-            end
-        end
+    if available and crewboardTweaks_isVisible then
+        CrewBoard.crewboardTweaks_updateInfo()
     end
 
     crewboardTweaks_sync(available, transport, lineToReset)
+end
+
+function CrewBoard.crewboardTweaks_onCrewChanged(index)
+    if crewboardTweaks_isVisible then
+        local entity = Sector():getEntity(index)
+        if entity then
+            local ship = getPlayerCraft()
+            if entity.index == ship.index then
+                CrewBoard.crewboardTweaks_updateInfo()
+            end
+        end
+    end
+end
+
+function CrewBoard.crewboardTweaks_updateInfo()
+    local ship = getPlayerCraft()
+    if ship and ship:hasComponent(ComponentType.Crew) then
+        local workforce = {}
+        local minWorkforce = {}
+        for k, v in pairs(ship.crew:getWorkforce()) do
+            workforce[k.value] = v
+        end
+        for k,v in pairs(ship.minCrew:getWorkforce()) do
+            minWorkforce[k.value] = v
+        end
+        minWorkforce[CrewProfessionType.Sergeant] = math.max(0, math.ceil((ship.crew.engineers + ship.crew.gunners + ship.crew.miners + ship.crew.mechanics + ship.crew.pilots + ship.crew.security + ship.crew.attackers - 9) / 10))
+        minWorkforce[CrewProfessionType.Lieutenant] = math.max(0, math.ceil((minWorkforce[CrewProfessionType.Sergeant] - 3) / 4))
+        minWorkforce[CrewProfessionType.Commander] = math.max(0, math.ceil((minWorkforce[CrewProfessionType.Lieutenant] - 2) / 3))
+        minWorkforce[CrewProfessionType.General] = math.max(0, math.ceil((minWorkforce[CrewProfessionType.Commander] - 2) / 3))
+        local wf, minWf, wfUIPair
+        for i = 1, 12 do
+            wf = workforce[i] or 0
+            minWf = minWorkforce[i] or 0
+            wfUIPair = crewboardTweaks_crewWorkforceUI[i]
+            wfUIPair.icon.tooltip = CrewProfession(i):name()
+            wfUIPair.label.caption = wf .. "/" .. minWf
+            wfUIPair.label.color = wf < minWf and ColorInt(0xffff2626) or ColorInt(0xffe0e0e0)
+        end
+    end
 end
 
 end
@@ -158,13 +200,13 @@ end
 else -- onServer
 
 
-local crewboardTweaks_hireCrew = CrewBoard.hireCrew
+crewboardTweaks_hireCrew = CrewBoard.hireCrew
 function CrewBoard.hireCrew(i, num)
     if anynils(i, num) then return end
     -- Fixing the exploit - server doesn't check if station has enough crew members
     local pair = availableCrew[i]
     if not pair then return end
-    num = math.min(tonumber(num), pair.number)
+    num = math.min(tonumber(num) or 0, pair.number)
     if num <= 0 then return end
 
     crewboardTweaks_hireCrew(i, num)
