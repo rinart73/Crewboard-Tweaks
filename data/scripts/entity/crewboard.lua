@@ -1,7 +1,6 @@
-local Azimuth, CrewboardTweaksConfig, crewboardTweaks_isVisible -- client
-local crewboardTweaks_crewWorkforceUI -- client UI
+local Azimuth, crewboardTweaks_isVisible -- client includes
+local crewboardTweaks_crewWorkforceUI, crewboardTweaks_freeCrewSpaceLabel, crewboardTweaks_hireReqCrewBtn -- client UI
 local crewboardTweaks_onShowWindow, crewboardTweaks_sync -- client extended functions
-local crewboardTweaks_hireCrew -- server extended functions
 
 
 if onClient() then
@@ -10,23 +9,9 @@ if onClient() then
 include("azimuthlib-uiproportionalsplitter")
 Azimuth = include("azimuthlib-basic")
 
-local crewboardTweaks_configOptions = {
-  _version = {default = "1.0", comment = "Config version. Don't touch."},
-  EnableCrewWorkforcePreview = {default = true, comment = "Show current and minimal crew workforce in crewboard window."}
-}
-local crewboardTweaks_isModified
-CrewboardTweaksConfig, crewboardTweaks_isModified = Azimuth.loadConfig("CrewboardTweaks", crewboardTweaks_configOptions)
-if crewboardTweaks_isModified then
-    Azimuth.saveConfig("CrewboardTweaks", CrewboardTweaksConfig, crewboardTweaks_configOptions)
-end
-
-if CrewboardTweaksConfig.EnableCrewWorkforcePreview then
-
-crewboardTweaks_crewWorkforceUI = {}
-
 function CrewBoard.initUI() -- overridden
     local res = getResolution()
-    local size = vec2(890, 470)
+    local size = vec2(890, 510)
     local menu = ScriptUI()
     local window = menu:createWindow(Rect(res * 0.5 - size * 0.5, res * 0.5 + size * 0.5));
     menu:registerWindow(window, "Hire Crew"%_t);
@@ -35,7 +20,7 @@ function CrewBoard.initUI() -- overridden
     window.showCloseButton = 1
     window.moveable = 1
 
-    local hsplit = UIHorizontalProportionalSplitter(Rect(vec2(0, 10), size), 10, 10, {0.8, 60, 0.2})
+    local hsplit = UIHorizontalProportionalSplitter(Rect(vec2(0, 10), size), 10, 10, {0.8, 30, 60, 0.2})
 
     local hmsplit = UIHorizontalMultiSplitter(Rect(hsplit[1].lower - vec2(0, 10), hsplit[1].upper - vec2(0, 10)), 10, 10, 6)
 
@@ -90,28 +75,36 @@ function CrewBoard.initUI() -- overridden
         uiGroups[#uiGroups+1] = {pic=pic, bar=bar, slider=slider, box=box, label=label, button=button, show=show, hide=hide}
     end
 
+    -- free crew space and 'Hire Required Crew'
+    local vsplit = UIVerticalProportionalSplitter(hsplit[2], 10, 0, {0.5, 150})
+    crewboardTweaks_freeCrewSpaceLabel = window:createLabel(Rect(vsplit[1].lower + vec2(0, 6), vsplit[1].upper), "", 15)
+    crewboardTweaks_hireReqCrewBtn = window:createButton(vsplit[2], "Hire"%_t, "crewboardTweaks_onHireRequiredBtn")
+    crewboardTweaks_hireReqCrewBtn.maxTextSize = 15
+
     -- ship workforce
-    local wfsplit = UIVerticalMultiSplitter(Rect(hsplit[2].lower, hsplit[2].upper - vec2(0, 10)), 10, 0, 5)
-    local wfpartition, wficon, wfyoffset
+    crewboardTweaks_crewWorkforceUI = {}
+    local wfsplit = UIVerticalMultiSplitter(Rect(hsplit[3].lower, hsplit[3].upper - vec2(0, 10)), 10, 0, 5)
     for i = 1, 12 do
-        wfpartition = wfsplit:partition(i - math.floor(i / 7) * 6 - 1)
-        wfyoffset = math.floor(i / 7) * 30
-        wficon = window:createPicture(Rect(wfpartition.lower + vec2(0, wfyoffset), wfpartition.lower + vec2(20, 20 + wfyoffset)), CrewProfession(i).icon)
-        wficon.isIcon = 1
+        local prof = CrewProfession(i)
+        local wfPartition = wfsplit:partition(i - math.floor(i / 7) * 6 - 1)
+        local wfYOffset = math.floor(i / 7) * 30
+        local wfIcon = window:createPicture(Rect(wfPartition.lower + vec2(0, wfYOffset), wfPartition.lower + vec2(20, 20 + wfYOffset)), prof.icon)
+        wfIcon.isIcon = 1
+        wfIcon.tooltip = prof:name()
         crewboardTweaks_crewWorkforceUI[i] = {
-          icon = wficon,
-          label = window:createLabel(Rect(wfpartition.lower + vec2(30, 2 + wfyoffset), wfpartition.upper + vec2(0, wfyoffset)), "0/0", 12)
+          icon = wfIcon,
+          label = window:createLabel(Rect(wfPartition.lower + vec2(30, 2 + wfYOffset), wfPartition.upper + vec2(0, wfYOffset)), "0/0", 12)
         }
     end
-    
-    window:createLine(hsplit[2].bottomLeft, hsplit[2].bottomRight)
 
-    local hsplit2 = UIHorizontalSplitter(hsplit[3], 10, 0, 0.4)
+    window:createLine(hsplit[3].bottomLeft, hsplit[3].bottomRight)
+
+    local hsplit2 = UIHorizontalSplitter(hsplit[4], 10, 0, 0.4)
     local vmsplit = UIVerticalMultiSplitter(hsplit2.bottom, 10, 0, 2)
 
     requestTransportButton = window:createButton(vmsplit:partition(2), "Request Transport"%_t, "onRequestTransportButtonPressed")
 
-    local label = window:createLabel(hsplit2.top, "You can request a crew transport ship here containing a complete crew for your current ship.\nOnly possible if your ship needs at least 300 more crewmembers."%_t, 12)
+    local label = window:createLabel(hsplit2.top, "You can request a crew transport ship here containing a complete crew for your current ship.\nOnly possible if your ship needs at least 300 more crew members."%_t, 12)
     label.font = FontType.Normal
     label.wordBreak = true
 
@@ -168,49 +161,130 @@ function CrewBoard.crewboardTweaks_onCrewChanged(index)
 end
 
 function CrewBoard.crewboardTweaks_updateInfo()
-    local ship = getPlayerCraft()
-    if ship and ship:hasComponent(ComponentType.Crew) then
-        local workforce = {}
-        local minWorkforce = {}
-        for k, v in pairs(ship.crew:getWorkforce()) do
-            workforce[k.value] = v
+    local ship, freeSpace, buyableCrew, workforce, minWorkforce = CrewBoard.crewboardTweaks_collectData()
+    if not ship then return end
+
+    crewboardTweaks_freeCrewSpaceLabel.caption = "Hire required crew (free space ${num})"%_t % { num = freeSpace }
+    for i = 1, 12 do
+        local prof = CrewProfession(i)
+        local wf = workforce[i] or 0
+        local minWf = minWorkforce[i] or 0
+        local wfUIPair = crewboardTweaks_crewWorkforceUI[i]
+        wfUIPair.label.caption = wf.."/"..minWf
+        if wf < minWf then
+            wfUIPair.label.color = ColorInt(0xffff2626)
+            wfUIPair.label.tooltip = nil
+        else
+            local mult = 1.0
+            if i == CrewProfessionType.Engine or i == CrewProfessionType.Repair then
+                mult = 1.3
+            end
+            if minWf * mult + 2 < wf then -- too much crew
+                wfUIPair.label.color = ColorInt(0xff00b1d1)
+                wfUIPair.label.tooltip = "You have too much crew of this type"%_t
+            else
+                wfUIPair.label.color = ColorInt(0xffe0e0e0)
+                wfUIPair.label.tooltip = nil
+            end
         end
-        for k,v in pairs(ship.minCrew:getWorkforce()) do
-            minWorkforce[k.value] = v
-        end
-        minWorkforce[CrewProfessionType.Sergeant] = math.max(0, math.ceil((ship.crew.engineers + ship.crew.gunners + ship.crew.miners + ship.crew.mechanics + ship.crew.pilots + ship.crew.security + ship.crew.attackers - 9) / 10))
-        minWorkforce[CrewProfessionType.Lieutenant] = math.max(0, math.ceil((minWorkforce[CrewProfessionType.Sergeant] - 3) / 4))
-        minWorkforce[CrewProfessionType.Commander] = math.max(0, math.ceil((minWorkforce[CrewProfessionType.Lieutenant] - 2) / 3))
-        minWorkforce[CrewProfessionType.General] = math.max(0, math.ceil((minWorkforce[CrewProfessionType.Commander] - 2) / 3))
-        local wf, minWf, wfUIPair
-        for i = 1, 12 do
-            wf = workforce[i] or 0
-            minWf = minWorkforce[i] or 0
-            wfUIPair = crewboardTweaks_crewWorkforceUI[i]
-            wfUIPair.icon.tooltip = CrewProfession(i):name()
-            wfUIPair.label.caption = wf .. "/" .. minWf
-            wfUIPair.label.color = wf < minWf and ColorInt(0xffff2626) or ColorInt(0xffe0e0e0)
-        end
+    end
+    local hireBtnTooltip = {}
+    local price = 0
+    local stationFaction = Faction()
+    local buyer = Player()
+    if ship.factionIndex == buyer.allianceIndex then
+        buyer = buyer.alliance
+    end
+    for k, v in pairs(buyableCrew) do
+        hireBtnTooltip[#hireBtnTooltip+1] = CrewProfession(k):name(v.amount)
+        price = price + CrewBoard.getPriceAndTax(CrewProfession(k), v.amount, stationFaction, buyer)
+    end
+    if price > 0 then
+        crewboardTweaks_hireReqCrewBtn.tooltip = table.concat(hireBtnTooltip, "\n").."\n".."Cost"%_t..": ".."¢${price}"%_t % {price = createMonetaryString(price)}
+        crewboardTweaks_hireReqCrewBtn.active = true
+    else
+        crewboardTweaks_hireReqCrewBtn.tooltip = nil
+        crewboardTweaks_hireReqCrewBtn.active = false
     end
 end
 
+function CrewBoard.crewboardTweaks_onHireRequiredBtn()
+    invokeServerFunction("crewboardTweaks_hireRequiredBtn")
 end
 
 
 else -- onServer
 
 
-crewboardTweaks_hireCrew = CrewBoard.hireCrew
-function CrewBoard.hireCrew(i, num)
-    if anynils(i, num) then return end
-    -- Fixing the exploit - server doesn't check if station has enough crew members
-    local pair = availableCrew[i]
-    if not pair then return end
-    num = math.min(tonumber(num) or 0, pair.number)
-    if num <= 0 then return end
+function CrewBoard.crewboardTweaks_hireRequiredBtn()
+    local player = Player(callingPlayer)
+    local ship, _, buyableCrew = CrewBoard.crewboardTweaks_collectData(callingPlayer)
+    if not ship then return end
 
-    crewboardTweaks_hireCrew(i, num)
+    for k, v in pairs(buyableCrew) do
+        CrewBoard.hireCrew(v.row, v.amount)
+    end
+end
+callable(CrewBoard, "crewboardTweaks_hireRequiredBtn")
+
+
 end
 
 
+function CrewBoard.crewboardTweaks_collectData(playerIndex)
+    local player = Player(playerIndex)
+    local ship = player and player.craft or nil
+    if not ship or not ship:hasComponent(ComponentType.Crew) then return end
+    local freeSpace = ship.maxCrewSize - ship.crewSize
+
+    local availableProfs = {}
+    for i, pair in pairs(availableCrew) do
+        availableProfs[pair.profession] = { number = pair.number, row = i }
+    end
+
+    local workforce = {}
+    for k, v in pairs(ship.crew:getWorkforce()) do
+        workforce[k.value] = v
+    end
+    local minWorkforce = {}
+    for k, v in pairs(ship.minCrew:getWorkforce()) do
+        minWorkforce[k.value] = v
+    end
+
+    -- calculate full crew
+    local unemployed = ship.crew.unemployed
+    local buyableCrew = {}
+    for k, v in pairs(minWorkforce) do
+        local wf = workforce[k] or 0
+        if wf < v then
+            -- professionals
+            local available = availableProfs[k] or { number = 0 }
+            if available.number > 0 and CrewBoard.canHireCrew(ship, available.row) then
+                local amount = math.min(available.number, math.ceil((v - wf) / 1.5))
+                buyableCrew[k] = { amount = amount, row = available.row }
+                wf = wf + amount * 1.5
+            end
+            -- untrained
+            if wf < v and CrewProfession(k).assignable then
+                available = availableProfs[CrewProfessionType.None] or { number = 0 }
+                if available.number > 0 then
+                    local amount = math.min(available.number, math.ceil(v - wf))
+                    if unemployed > 0 then -- take unemployed ship crew into account
+                        local minValue = math.min(amount, unemployed)
+                        unemployed = unemployed - minValue
+                        amount = amount - minValue
+                    end
+                    local untrained = buyableCrew[CrewProfessionType.None]
+                    if not untrained then
+                        buyableCrew[CrewProfessionType.None] = { amount = amount, row = available.row }
+                    else
+                        untrained.amount = untrained.amount + amount
+                    end
+                    available.number = available.number - amount
+                end
+            end
+        end
+    end
+
+    return ship, freeSpace, buyableCrew, workforce, minWorkforce
 end
