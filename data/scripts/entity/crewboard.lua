@@ -1,13 +1,23 @@
-local Azimuth, crewboardTweaks_isVisible -- client includes
-local crewboardTweaks_crewWorkforceUI, crewboardTweaks_freeCrewSpaceLabel, crewboardTweaks_hireReqCrewBtn -- client UI
-local crewboardTweaks_onShowWindow, crewboardTweaks_sync -- client extended functions
+local Azimuth -- server includes
+local CrewboardTweaksConfig -- client/server
+local crewboardTweaks_isVisible -- client
+local crewboardTweaks_crewWorkforceUI, crewboardTweaks_freeCrewSpaceLabel, crewboardTweaks_hireReqCrewBtn, crewboardTweaks_transportLabel -- client UI
+local crewboardTweaks_initialize, crewboardTweaks_onShowWindow, crewboardTweaks_onCloseWindow, crewboardTweaks_sync -- client extended functions
 
 
 if onClient() then
 
 
 include("azimuthlib-uiproportionalsplitter")
-Azimuth = include("azimuthlib-basic")
+
+-- PREDEFINED --
+crewboardTweaks_initialize = CrewBoard.initialize
+function CrewBoard.initialize(...)
+    crewboardTweaks_initialize(...)
+
+    CrewboardTweaksConfig = {}
+    invokeServerFunction("crewboardTweaks_sendSettings")
+end
 
 function CrewBoard.initUI() -- overridden
     local res = getResolution()
@@ -55,21 +65,21 @@ function CrewBoard.initUI() -- overridden
         local button = window:createButton(Rect(buttonX, rect.lower.y, buttonX + buttonSize, rect.upper.y), "Hire"%_t, "onHireButtonPressed")
 
         local hide = function (self)
-            self.bar:hide()
-            self.pic:hide()
-            self.slider:hide()
-            self.box:hide()
-            self.label:hide()
-            self.button:hide()
+            self.bar.visible = false
+            self.pic.visible = false
+            self.slider.visible = false
+            self.box.visible = false
+            self.label.visible = false
+            self.button.visible = false
         end
 
         local show = function (self)
-            self.bar:show()
-            self.pic:show()
-            self.slider:show()
-            self.box:show()
-            self.label:show()
-            self.button:show()
+            self.bar.visible = true
+            self.pic.visible = true
+            self.slider.visible = true
+            self.box.visible = true
+            self.label.visible = true
+            self.button.visible = true
         end
 
         uiGroups[#uiGroups+1] = {pic=pic, bar=bar, slider=slider, box=box, label=label, button=button, show=show, hide=hide}
@@ -104,9 +114,13 @@ function CrewBoard.initUI() -- overridden
 
     requestTransportButton = window:createButton(vmsplit:partition(2), "Request Transport"%_t, "onRequestTransportButtonPressed")
 
-    local label = window:createLabel(hsplit2.top, "You can request a crew transport ship here containing a complete crew for your current ship.\nOnly possible if your ship needs at least 300 more crew members."%_t, 12)
-    label.font = FontType.Normal
-    label.wordBreak = true
+    local text = "You can request a crew transport ship here containing a complete crew for your current ship.\nOnly possible if your ship needs at least 300 more crew members."%_t
+    if CrewboardTweaksConfig.TransportShipMinMissingCrew then
+        text = text:gsub(300, CrewboardTweaksConfig.TransportShipMinMissingCrew)
+    end
+    crewboardTweaks_transportLabel = window:createLabel(hsplit2.top, text, 12)
+    crewboardTweaks_transportLabel.font = FontType.Normal
+    crewboardTweaks_transportLabel.wordBreak = true
 
     transportPriceLabel = window:createLabel(vmsplit:partition(1), "", 14)
     transportPriceLabel.centered = true
@@ -148,6 +162,37 @@ function CrewBoard.sync(available, transport, lineToReset)
     crewboardTweaks_sync(available, transport, lineToReset)
 end
 
+crewboardTweaks_refreshUI = CrewBoard.refreshUI
+function CrewBoard.refreshUI(...)
+    crewboardTweaks_refreshUI(...)
+
+    if not uiInitialized then return end
+    local player = Player()
+    local ship = player.craft
+    if ship.maxCrewSize == nil or ship.crewSize == nil then return end
+
+    local active = true
+    local tooltip
+    if not CheckFactionInteraction(player.index, 60000) then
+        active = false
+        tooltip = "Your relations with that faction aren't good enough."%_t
+    elseif ship.minCrew.size - ship.crewSize < (CrewboardTweaksConfig.TransportShipMinMissingCrew or 300) then
+        local amount = math.max(0, ship.minCrew.size - ship.crewSize)
+        active = false
+        local text = "We don't require more than 300 additional crew members. Additionally required crew members: ${amount}"%_t
+        if CrewboardTweaksConfig.TransportShipMinMissingCrew then
+            text = text:gsub(300, CrewboardTweaksConfig.TransportShipMinMissingCrew)
+        end
+        tooltip = text % {amount = amount}
+    elseif transportData then
+        active = false
+        tooltip = "There's already a transport on the way."%_t
+    end
+    requestTransportButton.active = active
+    requestTransportButton.tooltip = tooltip
+end
+
+-- CALLBACKS --
 function CrewBoard.crewboardTweaks_onCrewChanged(index)
     if crewboardTweaks_isVisible then
         local entity = Sector():getEntity(index)
@@ -212,9 +257,50 @@ function CrewBoard.crewboardTweaks_onHireRequiredBtn()
     invokeServerFunction("crewboardTweaks_hireRequiredBtn")
 end
 
+-- CALLABLE --
+function CrewBoard.crewboardTweaks_receiveSettings(serverConfig)
+    CrewboardTweaksConfig = serverConfig
+
+    if not uiInitialized then return end
+
+    local text = "You can request a crew transport ship here containing a complete crew for your current ship.\nOnly possible if your ship needs at least 300 more crew members."%_t
+    text:gsub(300, CrewboardTweaksConfig.TransportShipMinMissingCrew)
+    crewboardTweaks_transportLabel.caption = text
+    CrewBoard.refreshUI()
+end
+
 
 else -- onServer
 
+
+Azimuth = include("azimuthlib-basic")
+
+local crewboardTweaks_configOptions = {
+  _version = { default = "1.0", comment = "Config version. Don't touch." },
+  TransportShipMinMissingCrew = { default = 300, min = 0, format = "floor", comment = "Minimal missing crew that is required to call a transport ship." }
+}
+local crewboardTweaks_isModified
+CrewboardTweaksConfig, crewboardTweaks_isModified = Azimuth.loadConfig("CrewboardTweaks", crewboardTweaks_configOptions)
+if crewboardTweaks_isModified then
+    Azimuth.saveConfig("CrewboardTweaks", CrewboardTweaksConfig, crewboardTweaks_configOptions)
+end
+
+-- PREDEFINED --
+-- Vanilla Fix: It's possible to call a transport ship even if you're missing < 300 people
+crewboardTweaks_onRequestTransportButtonPressed = CrewBoard.onRequestTransportButtonPressed
+function CrewBoard.onRequestTransportButtonPressed(...)
+    local buyer, ship = getInteractingFaction(callingPlayer, AlliancePrivilege.SpendResources)
+    if not buyer then return end
+    if ship.minCrew.size - ship.crewSize < CrewboardTweaksConfig.TransportShipMinMissingCrew then return end
+
+    crewboardTweaks_onRequestTransportButtonPressed(...)
+end
+
+-- CALLABLE --
+function CrewBoard.crewboardTweaks_sendSettings()
+    invokeClientFunction(Player(callingPlayer), "crewboardTweaks_receiveSettings", { TransportShipMinMissingCrew = CrewboardTweaksConfig.TransportShipMinMissingCrew })
+end
+callable(CrewBoard, "crewboardTweaks_sendSettings")
 
 function CrewBoard.crewboardTweaks_hireRequiredBtn()
     local player = Player(callingPlayer)
