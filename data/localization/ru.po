@@ -1,0 +1,18 @@
+# ========== C:\Users\WIN 10\AppData\Roaming\Avorion\mods\Crewboard Tweaks\data\scripts\entity\crewboard.lua ==========
+#: C:\Users\WIN 10\AppData\Roaming\Avorion\mods\Crewboard Tweaks\data\scripts\entity\crewboard.lua:
+msgid "Current Crew"
+msgstr "Текущий экипаж"
+
+#: C:\Users\WIN 10\AppData\Roaming\Avorion\mods\Crewboard Tweaks\data\scripts\entity\crewboard.lua:
+msgid "Hire required crew"
+msgstr "Нанять необходимый экипаж"
+
+#: C:\Users\WIN 10\AppData\Roaming\Avorion\mods\Crewboard Tweaks\data\scripts\entity\crewboard.lua:
+msgid " (free space ${num})"
+msgstr " (свободное место ${num})"
+
+#: C:\Users\WIN 10\AppData\Roaming\Avorion\mods\Crewboard Tweaks\data\scripts\entity\crewboard.lua:
+msgid "${workforce}/${required}"
+msgstr "${workforce}/${required}"
+
+
